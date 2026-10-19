@@ -1,0 +1,11 @@
+{
+  "name": "jotter",
+  "version": "1.0.0",
+  "description": "A Jupyter-style notebook for writing documents and notes. Blocks for Markdown, code, images, video and more. No code execution.",
+  "bin": { "jotter": "bin/jotter.js" },
+  "scripts": { "start": "node bin/jotter.js" },
+  "engines": { "node": ">=18" },
+  "files": ["bin", "src", "public", "README.md"],
+  "license": "MIT",
+  "dependencies": {}
+}
