@@ -33,6 +33,7 @@
     while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
     return a.slice(i).map(() => '..').concat(b.slice(i)).join('/');
   };
+  const decPath = (p) => String(p || '').split('/').map((s) => { try { return decodeURIComponent(s); } catch (e) { return s; } }).join('/');
 
   function h(tag, props, ...kids) {
     const el = document.createElement(tag);
@@ -69,6 +70,11 @@
     html: '<path d="M4 4h16l-1.5 15L12 21l-6.5-2z"/><path d="M8 9h8M8.5 13H15"/>',
     globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    itemList: '<path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M4 15h2l-2 3h2"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    eraser: '<path d="M20 20H7L3 16a2 2 0 0 1 0-3L13 3a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3L10 22"/><path d="M18 13l-5-5"/>',
+    flow: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h6a3 3 0 0 1 3 3v6"/><path d="M15 13l3 3 3-3"/>',
+    rich: '<path d="M4 6V4h16v2M12 4v16M9 20h6"/><path d="M4 13h5M15 13h5"/>',
     minus: '<path d="M5 12h14"/>',
     folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
     file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
@@ -193,8 +199,34 @@
     const f = lsGet('jot.font'); if (f) document.documentElement.dataset.font = f;
   }
   const isDark = () => (document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches));
-  function toggleTheme() { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; lsSet('jot.theme', t); }
+  function toggleTheme() {
+    const t = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+    lsSet('jot.theme', t);
+    try { document.dispatchEvent(new CustomEvent('jot:theme')); } catch (e) { /* ignore */ }
+  }
   const themeBtn = () => h('button', { class: 'tbtn', title: 'Toggle dark mode', 'aria-label': 'Toggle dark mode', onclick: toggleTheme, html: icon('moon') });
+
+  /* ---- mermaid ---- */
+  let mmdLoading = null;
+  const mmdConfig = () => ({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: isDark() ? 'dark' : 'default' });
+  function loadMermaid() {
+    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (mmdLoading) return mmdLoading;
+    mmdLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/static/mermaid.min.js';
+      s.async = true;
+      s.onload = () => {
+        try { window.mermaid.initialize(mmdConfig()); resolve(window.mermaid); }
+        catch (e) { reject(e); }
+      };
+      s.onerror = () => reject(new Error('Could not load the diagram renderer.'));
+      document.head.append(s);
+    });
+    mmdLoading.catch(() => { mmdLoading = null; });
+    return mmdLoading;
+  }
 
   /* ================================================================ dashboard */
   async function Dashboard(dir) {
@@ -313,7 +345,9 @@
   /* ================================================================ editor */
   const TYPES = {
     markdown: { label: 'Markdown', icon: 'type', desc: 'Rich text written in Markdown', edit: true },
+    richtext: { label: 'Rich text', icon: 'rich', desc: 'Basic rich text with pasted images', edit: true },
     code: { label: 'Code', icon: 'code', desc: 'Highlighted code, never executed', edit: true },
+    mermaid: { label: 'Mermaid diagram', icon: 'flow', desc: 'A diagram drawn from Mermaid text', edit: true, keepView: true },
     image: { label: 'Image', icon: 'image', desc: 'Upload, paste or link a picture', edit: true, keepView: true },
     video: { label: 'Video', icon: 'video', desc: 'A video file, or a YouTube / Vimeo link', edit: true, keepView: true },
     audio: { label: 'Audio', icon: 'audio', desc: 'An audio file or link', edit: true, keepView: true },
@@ -327,7 +361,9 @@
   };
   const HINT = {
     markdown: 'Empty text block. Press Enter to start writing.',
+    richtext: 'Empty rich text block. Press Enter to write or paste an image.',
     code: 'Empty code block. Press Enter to type or paste code.',
+    mermaid: 'Empty diagram. Press Enter to write Mermaid text.',
     image: 'No image yet. Press Enter to add one, or drop a file here.',
     video: 'No video yet. Press Enter to add a file or a YouTube link.',
     audio: 'No audio yet. Press Enter to add a file or link.',
@@ -338,7 +374,9 @@
   };
   const DEFAULTS = {
     markdown: { source: '' },
+    richtext: { html: '' },
     code: { source: '', lang: 'text', filename: '' },
+    mermaid: { source: 'graph TD\n  A[Idea] --> B[Plan]\n  B --> C[Ship]' },
     image: { src: '', alt: '', caption: '', width: 100, align: 'center' },
     video: { src: '', caption: '' },
     audio: { src: '', caption: '' },
@@ -353,6 +391,8 @@
   const isEmpty = (b) => {
     switch (b.type) {
       case 'markdown': case 'callout': case 'code': case 'html': return !String(b.source || '').trim();
+      case 'mermaid': return !String(b.source || '').trim();
+      case 'richtext': return !R.stripTags(b.html) && !/<img\b/i.test(String(b.html || ''));
       case 'image': case 'video': case 'audio': return !b.src;
       case 'embed': return !b.url;
       case 'todo': return !(b.items || []).some((i) => i.text && i.text.trim());
@@ -418,7 +458,7 @@
     const idx = (id = S.sel) => nb.blocks.findIndex((b) => b.id === id);
     const cur = () => nb.blocks[idx()];
     const cellEl = (id) => doc.querySelector('.cell[data-id="' + id + '"]');
-    const snap = () => JSON.stringify(nb.blocks);
+    const snap = () => JSON.stringify(nb.blocks.map((b) => (b.svg ? Object.assign({}, b, { svg: undefined }) : b)));
 
     function resolveSrc(u) {
       if (!u || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(u)) return u;
@@ -426,6 +466,128 @@
       return '/files/' + (dir ? enc(dir) + '/' : '') + normEnc(u);
     }
     const ctx = { resolve: resolveSrc, headings: () => R.collectHeadings(nb.blocks), live: true };
+
+    /* ---- rich text helpers ---- */
+    const rtResolve = (html) => {
+      const t = document.createElement('template');
+      t.innerHTML = R.sanitizeHtml(html || '');
+      t.content.querySelectorAll('img[src]').forEach((img) => {
+        let rel = img.getAttribute('data-rel') || img.getAttribute('src') || '';
+        if (!rel || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\/)/i.test(rel)) return;
+        rel = decPath(rel);
+        img.setAttribute('data-rel', rel);
+        img.setAttribute('src', resolveSrc(rel));
+      });
+      return t.innerHTML;
+    };
+    const rtStore = (ed) => {
+      const c = ed.cloneNode(true);
+      c.querySelectorAll('img').forEach((img) => {
+        const rel = img.getAttribute('data-rel');
+        if (rel) { img.setAttribute('src', rel); img.removeAttribute('data-rel'); return; }
+        const src = img.getAttribute('src') || '';
+        const prefix = '/files/' + (dir ? enc(dir) + '/' : '');
+        if (src.startsWith(prefix)) { img.setAttribute('src', decPath(src.slice(prefix.length))); return; }
+        if (src.startsWith('/files/')) img.setAttribute('src', decPath(src.slice(7)));
+      });
+      /* Editors can leave a paragraph wrapped around a list or heading. Unwrap it. */
+      c.querySelectorAll('p').forEach((p) => {
+        if (!p.querySelector('p, div, ul, ol, blockquote, pre, hr')) return;
+        while (p.firstChild) p.parentNode.insertBefore(p.firstChild, p);
+        p.remove();
+      });
+      return R.sanitizeHtml(c.innerHTML);
+    };
+    const rtImg = (rel, alt) => {
+      const img = document.createElement('img');
+      img.setAttribute('data-rel', rel);
+      img.setAttribute('src', resolveSrc(rel));
+      img.alt = alt || '';
+      return img;
+    };
+    function rtRange(ed) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return null;
+      const r = sel.getRangeAt(0);
+      return ed.contains(r.commonAncestorContainer) ? r.cloneRange() : null;
+    }
+    function rtFocus(ed, range) {
+      ed.focus();
+      const sel = window.getSelection();
+      if (!sel) return;
+      const r = range || document.createRange();
+      if (!range) { r.selectNodeContents(ed); r.collapse(false); }
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+    function rtInsert(ed, node, range) {
+      ed.focus();
+      const sel = window.getSelection();
+      let r = range || (sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null);
+      if (!r || !ed.contains(r.commonAncestorContainer)) {
+        r = document.createRange();
+        r.selectNodeContents(ed);
+        r.collapse(false);
+      }
+      r.deleteContents();
+      const last = node.nodeType === 11 ? node.lastChild : node;
+      r.insertNode(node);
+      if (last) { r.setStartAfter(last); r.collapse(true); }
+      if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+    }
+    function dataImageBlob(u) {
+      const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/i.exec(String(u || ''));
+      if (!m) throw new Error('Not a data URL');
+      const type = m[1] || 'image/png';
+      const raw = m[2] ? atob(m[3]) : decodeURIComponent(m[3]);
+      const bin = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
+      return new Blob([bin], { type });
+    }
+    function rtDropRange(ed, x, y) {
+      let r = null;
+      if (document.caretRangeFromPoint) r = document.caretRangeFromPoint(x, y);
+      else if (document.caretPositionFromPoint) {
+        const p = document.caretPositionFromPoint(x, y);
+        if (p) { r = document.createRange(); r.setStart(p.offsetNode, p.offset); r.collapse(true); }
+      }
+      return r && ed.contains(r.commonAncestorContainer) ? r : rtRange(ed);
+    }
+
+    /* ---- mermaid rendering ---- */
+    const mmdSeq = new Map();
+    function paintMermaid(view, b) {
+      if (!view || !b || isEmpty(b)) return Promise.resolve();
+      const box = $('.mmd', view);
+      if (!box) return Promise.resolve();
+      const token = (mmdSeq.get(b.id) || 0) + 1;
+      mmdSeq.set(b.id, token);
+      const go = async () => {
+        if (mmdSeq.get(b.id) !== token) return;
+        box.innerHTML = '<div class="mmd-status">Rendering diagram…</div>';
+        try {
+          const m = await loadMermaid();
+          const svg = (await m.render('mmd-' + b.id + '-' + token, String(b.source || ''))).svg;
+          if (mmdSeq.get(b.id) !== token) return;
+          const clean = R.sanitizeSvg(svg);
+          box.innerHTML = clean;
+          if (b.svg !== clean) { b.svg = clean; dirty(); }
+        } catch (e) {
+          if (mmdSeq.get(b.id) !== token) return;
+          const msg = (e && (e.str || e.message)) || 'Could not render this diagram.';
+          box.innerHTML = '<div class="mmd-error">' + R.esc(msg) + '</div>' +
+            (b.svg ? R.sanitizeSvg(b.svg) : '<pre class="mmd-src">' + R.esc(b.source || '') + '</pre>');
+        }
+      };
+      return go();
+    }
+    async function flushMermaid() {
+      for (const b of nb.blocks) {
+        if (b.type !== 'mermaid' || isEmpty(b)) continue;
+        const el = cellEl(b.id);
+        if (el) await paintMermaid($('.view', el), b);
+      }
+    }
 
     /* ---- history ---- */
     function checkpoint() {
@@ -560,6 +722,7 @@
         const t = document.getElementById(a.getAttribute('href').slice(1));
         if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }));
+      if (b.type === 'mermaid') paintMermaid(view, b);
     }
     function refreshTocs() { nb.blocks.filter((b) => b.type === 'toc').forEach((b) => { const el = cellEl(b.id); if (el) renderView(el, b); }); }
     function refreshBlock(id) { const el = cellEl(id), b = nb.blocks[idx(id)]; if (el && b) renderView(el, b); }
@@ -590,7 +753,7 @@
       S.editing = null;
       const frag = document.createDocumentFragment();
       nb.blocks.forEach((b, i) => { frag.append(adder(i), blockEl(b)); });
-      frag.append(h('div', { class: 'add-row' }, ['markdown', 'code', 'image', 'video', 'callout', 'table', 'todo'].map((t) =>
+      frag.append(h('div', { class: 'add-row' }, ['markdown', 'richtext', 'code', 'mermaid', 'image', 'video', 'callout', 'table', 'todo'].map((t) =>
         h('button', { class: 'btn', onclick: () => insertAt(nb.blocks.length, t), html: icon(TYPES[t].icon, 14) + ' ' + TYPES[t].label }))));
       doc.replaceChildren(frag);
       selectUI(false); refreshOutline(); stats(); status();
@@ -803,6 +966,126 @@
         const ta = textArea(b, 'source', 'Write Markdown: # Heading, **bold**, - list, > quote, ``` code. Paste images to insert them.');
         return { node: ta, focus: (o) => focusEnd(ta, o) };
       },
+      richtext(b) {
+        const ed = h('div', { class: 'rt-edit md', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Rich text', 'data-placeholder': 'Write here, or paste an image…' });
+        ed.innerHTML = rtResolve(b.html || '');
+        const sync = () => { b.html = rtStore(ed); dirty(); stats(); };
+        ed.addEventListener('input', sync);
+        ed.addEventListener('blur', sync);
+        let saved = null;
+        const run = (cmd, val) => {
+          const sel = window.getSelection();
+          if (!sel || !sel.rangeCount || !ed.contains(sel.getRangeAt(0).commonAncestorContainer)) rtFocus(ed);
+          try { document.execCommand('styleWithCSS', false, false); } catch (e) { /* older browser */ }
+          try { document.execCommand(cmd, false, val === undefined ? null : val); } catch (e) { /* unsupported command */ }
+          sync();
+        };
+        const tool = (ic, title, onClick, html) => h('button', { class: 'tbtn rt-btn', type: 'button', title, 'aria-label': title, onmousedown: (e) => e.preventDefault(), onclick: onClick, html: html || icon(ic, 15) });
+        const file = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+        const pick = () => { saved = rtRange(ed) || saved; file.click(); };
+        file.addEventListener('change', async () => {
+          const files = Array.from(file.files || []);
+          file.value = '';
+          let range = saved || rtRange(ed);
+          for (const f of files) {
+            try {
+              const r = await uploadAsset(f);
+              rtFocus(ed, range);
+              rtInsert(ed, rtImg(r.rel, stem(f.name || '')), range);
+              range = rtRange(ed);
+            } catch (e) { toast('Upload failed: ' + e.message, 'error'); }
+          }
+          saved = range;
+          sync();
+        });
+        const tools = h('div', { class: 'rt-tools' },
+          tool(null, 'Bold (Ctrl+B)', () => run('bold'), '<b>B</b>'),
+          tool(null, 'Italic (Ctrl+I)', () => run('italic'), '<i>I</i>'),
+          tool(null, 'Underline (Ctrl+U)', () => run('underline'), '<u>U</u>'),
+          tool(null, 'Strikethrough', () => run('strikeThrough'), '<s>S</s>'),
+          h('span', { class: 'tsep' }),
+          tool('list', 'Bulleted list', () => run('insertUnorderedList')),
+          tool('itemList', 'Numbered list', () => run('insertOrderedList')),
+          tool('link', 'Link', async () => {
+            const range = rtRange(ed);
+            const url = await promptText('Link address', 'https://', 'Add link');
+            if (url) { rtFocus(ed, range); run('createLink', url); }
+          }),
+          h('span', { class: 'tsep' }),
+          tool('image', 'Insert image', pick),
+          tool('eraser', 'Clear formatting', () => { run('removeFormat'); run('formatBlock', 'p'); }),
+          file);
+        ed.addEventListener('paste', async (e) => {
+          const cd = e.clipboardData;
+          if (!cd) return;
+          const images = Array.from(cd.files || []).filter((f) => f.type.startsWith('image/'));
+          if (images.length) {
+            e.preventDefault();
+            let range = rtRange(ed);
+            for (const f of images) {
+              try {
+                const r = await uploadAsset(f);
+                rtFocus(ed, range);
+                rtInsert(ed, rtImg(r.rel, stem(f.name || '')), range);
+                range = rtRange(ed);
+              } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
+            }
+            sync();
+            return;
+          }
+          const html = cd.getData('text/html');
+          if (!html) return;
+          e.preventDefault();
+          const t = document.createElement('template');
+          t.innerHTML = R.sanitizeHtml(html, resolveSrc);
+          const prefix = '/files/' + (dir ? enc(dir) + '/' : '');
+          for (const img of Array.from(t.content.querySelectorAll('img[src]'))) {
+            const src = img.getAttribute('src') || '';
+            if (src.startsWith(prefix)) {
+              const rel = decPath(src.slice(prefix.length));
+              img.setAttribute('data-rel', rel);
+              img.setAttribute('src', resolveSrc(rel));
+            } else if (/^data:image\//i.test(src)) {
+              try {
+                const blob = dataImageBlob(src);
+                const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*/, '');
+                const r = await uploadAsset(new File([blob], 'pasted-' + stamp() + '.' + ext, { type: blob.type }));
+                img.setAttribute('data-rel', r.rel);
+                img.setAttribute('src', resolveSrc(r.rel));
+              } catch (err) { /* keep the data URL in the rare case it cannot be uploaded */ }
+            }
+          }
+          rtInsert(ed, document.importNode(t.content, true), rtRange(ed));
+          sync();
+        });
+        ed.addEventListener('drop', async (e) => {
+          const files = Array.from(e.dataTransfer.files || []).filter((f) => f.type.startsWith('image/'));
+          if (!files.length) return;
+          e.preventDefault();
+          let range = rtDropRange(ed, e.clientX, e.clientY);
+          for (const f of files) {
+            try {
+              const r = await uploadAsset(f);
+              rtFocus(ed, range);
+              rtInsert(ed, rtImg(r.rel, stem(f.name || '')), range);
+              range = rtRange(ed);
+            } catch (err) { toast('Upload failed: ' + err.message, 'error'); }
+          }
+          sync();
+        });
+        return { node: h('div', { class: 'ed-stack' }, tools, ed), focus: () => rtFocus(ed) };
+      },
+      mermaid(b, el) {
+        const refresh = debounce(() => renderView(el, b), 400);
+        const ta = h('textarea', { class: 'ta', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', 'aria-label': 'Mermaid source', placeholder: 'graph TD\n  A[Start] --> B[Finish]' });
+        ta.value = b.source || '';
+        ta.addEventListener('input', () => { b.source = ta.value; fit(ta); dirty(); stats(); refresh(); });
+        ta.addEventListener('keydown', (e) => {
+          if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); indentSel(ta, e.shiftKey); }
+        });
+        requestAnimationFrame(() => fit(ta));
+        return { node: h('div', { class: 'ed-stack' }, ta, h('div', { class: 'ed-note' }, 'Rendered with Mermaid. Diagrams are never run as code.')), focus: (o) => focusEnd(ta, o) };
+      },
       code(b) {
         const lang = h('select', { class: 'sel', title: 'Language', 'aria-label': 'Language', onchange: () => { b.lang = lang.value; paint(); dirty(); } },
           R.LANGS.map((l) => h('option', { value: l, selected: (b.lang || 'text') === l }, l)));
@@ -932,6 +1215,18 @@
     }
     function setWidth(w) { prefs.width = w; lsSet('jot.width', w); page.dataset.width = w; }
     function setFont(f) { document.documentElement.dataset.font = f; lsSet('jot.font', f); }
+    function onTheme() {
+      const blocks = nb.blocks.filter((b) => b.type === 'mermaid');
+      if (!blocks.length) return;
+      if (window.mermaid) { try { window.mermaid.initialize(mmdConfig()); } catch (e) { /* retry when rendering */ } }
+      blocks.forEach((b) => {
+        b.svg = '';
+        const el = cellEl(b.id);
+        if (el) renderView(el, b);
+      });
+      dirty();
+    }
+    document.addEventListener('jot:theme', onTheme);
 
     /* ---- file actions ---- */
     async function renameNb() {
@@ -942,11 +1237,17 @@
     }
     async function exportAs(fmt) {
       exitEdit();
+      await flushMermaid();
       await save();
       if (fmt === 'html') { location.href = '/api/export?format=html&path=' + encodeURIComponent(path); return; }
       try { const r = await api('/api/export?format=md&path=' + encodeURIComponent(path)); toast('Saved ' + basename(r.path) + ' next to this notebook'); } catch (e) { toast(e.message, 'error'); }
     }
-    function printDoc() { exitEdit(); setTimeout(() => window.print(), 60); }
+    async function printDoc() {
+      exitEdit();
+      await flushMermaid();
+      try { await save(); } catch (e) { /* print what is on screen anyway */ }
+      setTimeout(() => window.print(), 60);
+    }
 
     /* ---- commands, menus, palette ---- */
     const C = {};

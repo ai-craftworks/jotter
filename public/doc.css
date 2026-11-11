@@ -98,6 +98,18 @@ figcaption { font: 14px/1.5 var(--doc-font); color: var(--muted); text-align: ce
 .empty-media { padding: 22px; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); text-align: center; font: 14px var(--sans); }
 img.broken { min-height: 60px; background: var(--danger-bg); outline: 1px dashed var(--danger); }
 
+/* ---- mermaid ---- */
+.mmd { max-width: 100%; overflow-x: auto; text-align: center; }
+.mmd svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.mmd-status { padding: 14px; color: var(--muted); font: italic 14px var(--sans); text-align: center; }
+.mmd-error {
+  margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: 5px;
+  background: var(--danger-bg); color: var(--danger); text-align: left;
+  font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.mmd-src { margin: 0; padding: 10px 12px; text-align: left; background: var(--code-bg); border: 1px solid var(--line-soft); border-radius: 5px; overflow-x: auto; font: 12.5px/1.5 var(--mono); }
+.mmd-fallback pre code { font: inherit; }
+
 /* ---- callouts, todo, toc ---- */
 .callout { border-left: 4px solid var(--note); background: color-mix(in srgb, var(--note) 9%, transparent); border-radius: 4px; padding: 10px 16px 12px; }
 .callout.tip { border-color: var(--tip); background: color-mix(in srgb, var(--tip) 9%, transparent); }

@@ -16,7 +16,11 @@ The terminal prints a link with an access token (like Jupyter). Only that link c
 
 ## Blocks
 
-Markdown, Code (highlighted, never run), Image, Video (file, YouTube, Vimeo), Audio, Callout, To-do list, Table, HTML (sandboxed, no scripts), Embed (web page or PDF), Contents (auto table of contents), Divider.
+Markdown, Rich text (basic formatting with pasted images), Code (highlighted, never run), Mermaid diagram, Image, Video (file, YouTube, Vimeo), Audio, Callout, To-do list, Table, HTML (sandboxed, no scripts), Embed (web page or PDF), Contents (auto table of contents), Divider.
+
+Rich text supports bold, italic, underline, strikethrough, lists, links and images. Paste a screenshot or drag an image into the block and it is uploaded for you.
+
+Mermaid diagrams are rendered locally by the bundled `public/mermaid.min.js` (Mermaid 12.3.0, MIT licence in `public/mermaid.LICENSE`); no network access is needed. Diagrams are cached as SVG so HTML export and print work offline, and Markdown export writes a readable fenced `mermaid` code block.
 
 Uploaded or pasted media is stored in `<notebook>_assets/` next to the notebook and follows it on rename, duplicate and delete.
 
