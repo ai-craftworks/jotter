@@ -10,7 +10,7 @@ const VERSION = require('../package.json').version;
 
 const EXT = '.jot';
 const PUBLIC = path.join(__dirname, '..', 'public');
-const STATIC = new Set(['render.js', 'app.js', 'style.css', 'doc.css']);
+const STATIC = new Set(['render.js', 'app.js', 'style.css', 'doc.css', 'mermaid.min.js']);
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
 
 const MIME = {
@@ -347,7 +347,12 @@ function createHandler(opts) {
       if (p.startsWith('/static/')) {
         const name = decodeURIComponent(p.slice(8));
         if (!STATIC.has(name)) throw new HttpError(404, 'Not found');
-        return send(res, 200, await fsp.readFile(path.join(PUBLIC, name)), { 'Content-Type': mimeOf(name), 'Cache-Control': 'no-cache' });
+        const file = path.join(PUBLIC, name);
+        const st = await fsp.stat(file).catch(() => null);
+        if (!st || !st.isFile()) throw new HttpError(404, 'Not found');
+        const etag = '"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
+        if (req.headers['if-none-match'] === etag) { res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' }); return res.end(); }
+        return send(res, 200, await fsp.readFile(file), { 'Content-Type': mimeOf(name), 'Cache-Control': 'no-cache', ETag: etag });
       }
       if (p === '/') { res.writeHead(302, { Location: '/tree/' }); return res.end(); }
       if (p === '/tree' || p.startsWith('/tree/') || p.startsWith('/edit/')) {

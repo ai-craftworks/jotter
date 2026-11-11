@@ -132,6 +132,22 @@ table.grid input:focus { outline: 2px solid var(--edit); outline-offset: -2px; }
 .tbl-tools .btn { font-size: 12.5px; padding: 3px 9px; }
 .tbl-tools label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 6px; }
 
+/* ---- rich text ---- */
+.rt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; margin-bottom: 7px; }
+.rt-btn { width: 28px; height: 26px; font-size: 13px; }
+.rt-btn b, .rt-btn i, .rt-btn u, .rt-btn s { pointer-events: none; }
+.rt-edit {
+  min-height: 84px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--paper); outline: none; overflow-wrap: anywhere;
+}
+.rt-edit:focus { border-color: var(--edit); }
+.rt-edit:empty::before { content: attr(data-placeholder); color: var(--muted); font-style: italic; }
+.rt-edit img { max-width: 100%; height: auto; border-radius: 4px; }
+.rt-edit a { color: var(--brand); text-decoration: underline; text-underline-offset: 2px; }
+.rt-edit p, .rt-edit ul, .rt-edit ol, .rt-edit blockquote { margin: 0 0 .7em; }
+.rt-edit > :last-child { margin-bottom: 0; }
+.ed-note { color: var(--muted); font-size: 12.5px; }
+
 /* ---- status bar ---- */
 .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; display: flex; gap: 16px; align-items: center; height: 28px; padding: 0 14px; background: var(--paper); border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
 .mode { display: inline-flex; align-items: center; gap: 6px; }

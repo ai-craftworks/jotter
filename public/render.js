@@ -37,6 +37,123 @@
   const slugify = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s+/g, '-');
   const plain = (s) => String(s).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[`*_~=]/g, '').trim();
 
+  /* ------------------------------------------------------ rich text sanitising */
+  const ENT = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0',
+    mdash: '\u2014', ndash: '\u2013', hellip: '\u2026', middot: '\u00b7', bull: '\u2022',
+    lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d', laquo: '\u00ab', raquo: '\u00bb',
+    copy: '\u00a9', reg: '\u00ae', trade: '\u2122', deg: '\u00b0', plusmn: '\u00b1',
+    frac12: '\u00bd', frac14: '\u00bc', frac34: '\u00be', sup2: '\u00b2', sup3: '\u00b3', micro: '\u00b5',
+    times: '\u00d7', divide: '\u00f7', euro: '\u20ac', pound: '\u00a3', yen: '\u00a5', cent: '\u00a2',
+    sect: '\u00a7', para: '\u00b6', dagger: '\u2020', Dagger: '\u2021', permil: '\u2030',
+  };
+  function decodeEntities(s) {
+    return String(s).replace(/&(#x[\da-f]+|#\d+|[a-z][a-z0-9]+);/gi, (m, e) => {
+      if (e.charAt(0) === '#') {
+        const n = e.charAt(1).toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+      }
+      const v = ENT[e] !== undefined ? ENT[e] : ENT[e.toLowerCase()];
+      return v === undefined ? m : v;
+    });
+  }
+  const stripTags = (s) => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+
+  const RT_TAGS = new Set(['p', 'div', 'br', 'strong', 'em', 'u', 's', 'del', 'code', 'pre', 'blockquote',
+    'ul', 'ol', 'li', 'a', 'img', 'hr', 'span', 'mark', 'sub', 'sup']);
+  const RT_VOID = new Set(['br', 'img', 'hr']);
+  const RT_DROP = new Set(['script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'template',
+    'noscript', 'link', 'meta', 'base', 'form', 'input', 'button', 'select', 'textarea', 'video', 'audio', 'source', 'canvas']);
+  const RT_ATTRS = { a: ['href', 'title'], img: ['src', 'alt', 'title', 'data-rel'] };
+  const RT_TAG = /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+
+  function rtAttrs(name, raw, urlOf) {
+    const allowed = RT_ATTRS[name];
+    if (!allowed) return '';
+    const out = [];
+    const re = /([\w:-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+    let m;
+    while ((m = re.exec(raw || ''))) {
+      const key = m[1].toLowerCase();
+      if (!allowed.includes(key)) continue;
+      const value = decodeEntities(m[3] !== undefined ? m[3] : m[4] !== undefined ? m[4] : m[5] || '');
+      if (key === 'href' || key === 'src') {
+        if (!value.trim()) continue;
+        const u = urlOf(value);
+        if (u === '#' && value.trim().charAt(0) !== '#') continue;
+        out.push(key + '="' + esc(u) + '"');
+      } else out.push(key + '="' + esc(value) + '"');
+    }
+    if (name === 'a' && out.some((a) => a.startsWith('href='))) out.push('target="_blank"', 'rel="noopener noreferrer"');
+    if (name === 'img') {
+      if (!out.some((a) => a.startsWith('src='))) return '';
+      out.push('loading="lazy"');
+    }
+    return out.length ? ' ' + out.join(' ') : '';
+  }
+
+  function sanitizeHtml(html, resolve) {
+    const src = String(html == null ? '' : html);
+    const out = [];
+    const stack = [];
+    const urlOf = (v) => {
+      const u = safeUrl(v);
+      return resolve ? resolve(u) : u;
+    };
+    let skip = null, skipDepth = 0, last = 0, m;
+    RT_TAG.lastIndex = 0;
+    const text = (t) => { if (!skip && t) out.push(esc(decodeEntities(t))); };
+    while ((m = RT_TAG.exec(src))) {
+      text(src.slice(last, m.index));
+      last = RT_TAG.lastIndex;
+      if (!m[1]) continue;
+      let name = m[1].toLowerCase();
+      const closing = m[0].charAt(1) === '/';
+      const self = /\/\s*>$/.test(m[0]);
+      if (skip) {
+        if (name === skip) {
+          if (closing) { if (--skipDepth === 0) skip = null; }
+          else if (!self) skipDepth++;
+        }
+        continue;
+      }
+      if (RT_DROP.has(name)) {
+        if (!closing && !self) { skip = name; skipDepth = 1; }
+        continue;
+      }
+      if (/^h[1-6]$/.test(name)) name = 'p';
+      else if (name === 'b') name = 'strong';
+      else if (name === 'i') name = 'em';
+      else if (name === 'strike') name = 's';
+      if (!RT_TAGS.has(name)) continue;
+      if (closing) {
+        const at = stack.lastIndexOf(name);
+        if (at >= 0) while (stack.length > at) out.push('</' + stack.pop() + '>');
+        continue;
+      }
+      const attrs = rtAttrs(name, m[2], urlOf);
+      if (name === 'img') {
+        if (attrs) out.push('<img' + attrs + '>');
+        continue;
+      }
+      if (RT_VOID.has(name)) { out.push('<' + name + attrs + '>'); continue; }
+      if (self) { out.push('<' + name + attrs + '></' + name + '>'); continue; }
+      out.push('<' + name + attrs + '>');
+      stack.push(name);
+    }
+    text(src.slice(last));
+    while (stack.length) out.push('</' + stack.pop() + '>');
+    return out.join('');
+  }
+
+  function sanitizeSvg(svg) {
+    return String(svg || '')
+      .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
+      .replace(/<script\b[^>]*\/?>/gi, '')
+      .replace(/([\s/])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
+      .replace(/((?:xlink:)?href\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi, '$1"#"');
+  }
+
   /* ------------------------------------------------------ syntax highlighting */
   const kw = (s) => '\\b(?:' + s.trim().split(/\s+/).join('|') + ')\\b';
   const RX = {
@@ -287,6 +404,14 @@
     switch (b.type) {
       case 'markdown':
         return '<div class="md">' + md(b.source, o) + '</div>';
+      case 'richtext':
+        return '<div class="md rt">' + sanitizeHtml(b.html || '', ctx.resolve) + '</div>';
+      case 'mermaid': {
+        const cached = sanitizeSvg(b.svg);
+        if (cached && !ctx.live) return '<div class="mmd">' + cached + '</div>';
+        if (ctx.live) return '<div class="mmd"><div class="mmd-status">Rendering diagram…</div></div>';
+        return '<div class="mmd mmd-fallback"><pre><code class="language-mermaid">' + esc(b.source || '') + '</code></pre></div>';
+      }
       case 'code': {
         const lang = b.lang && b.lang !== 'text' ? b.lang : '';
         const head = b.filename || lang ? '<div class="code-head"><span class="fname">' + esc(b.filename || '') + '</span><span class="lang">' + esc(lang) + '</span></div>' : '';
@@ -347,6 +472,7 @@
     let text = '';
     for (const b of nb.blocks || []) {
       text += ' ' + [b.source, b.caption, b.title].filter(Boolean).join(' ');
+      if (b.html) text += ' ' + stripTags(b.html);
       if (b.items) text += ' ' + b.items.map((i) => i.text).join(' ');
       if (b.rows) text += ' ' + b.rows.map((r) => r.join(' ')).join(' ');
     }
@@ -361,6 +487,19 @@
     for (const b of nb.blocks) {
       switch (b.type) {
         case 'markdown': out.push(String(b.source || '').trim()); break;
+        case 'richtext': {
+          const html = sanitizeHtml(b.html || '').trim();
+          if (html) out.push(html);
+          break;
+        }
+        case 'mermaid': {
+          const src = String(b.source || '').trim();
+          if (src) {
+            const f = src.includes('```') ? '~~~~' : '```';
+            out.push(f + 'mermaid\n' + src + '\n' + f);
+          }
+          break;
+        }
         case 'code': {
           const src = b.source || '';
           const f = src.includes('```') ? '~~~~' : '```';
@@ -416,5 +555,5 @@
       '<body class="export"><main class="doc">' + body + '</main></body></html>\n';
   }
 
-  return { esc, md, inline, highlight, blockHtml, collectHeadings, toMarkdown, toHtmlDocument, wordCount, embedUrl, encPath, LANGS };
+  return { esc, md, inline, highlight, blockHtml, collectHeadings, toMarkdown, toHtmlDocument, wordCount, embedUrl, encPath, LANGS, sanitizeHtml, sanitizeSvg, stripTags };
 });
